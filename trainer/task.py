@@ -418,10 +418,10 @@ if __name__ == "__main__":
     total_files = 1281167
 
     cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver()
-    # if cluster_resolver.cluster_spec():
-    #     tf.config.experimental_connect_to_cluster(cluster_resolver)
-    #     tf.tpu.experimental.initialize_tpu_system(cluster_resolver)
-    # strategy = tf.distribute.TPUStrategy(cluster_resolver)
+    if cluster_resolver.cluster_spec():
+        tf.config.experimental_connect_to_cluster(cluster_resolver)
+        tf.tpu.experimental.initialize_tpu_system(cluster_resolver)
+    strategy = tf.distribute.TPUStrategy(cluster_resolver)
 
     # os.makedirs(args.output_dir, exist_ok=True)
     # os.makedirs(os.path.join(args.output_dir, "checkpoints"), exist_ok=True)
@@ -446,67 +446,67 @@ if __name__ == "__main__":
 
     training_dataset = load_compressed_tfrecord_dataset(args.input_dir, batch_size=args.batch_size)
 
-    #with strategy.scope():
-    contrastive_optimizer=Adam(learning_rate=args.learning_rate)
+    with strategy.scope():
+        contrastive_optimizer=Adam(learning_rate=args.learning_rate)
 
-    # Load or create model
-    if args.resume_from and tf.io.gfile.exists(args.resume_from):
-        print(f"Loading model from {args.resume_from}...")
-        custom_objects = {
-            "PatchExtractor": PatchExtractor,
-            "PatchEncoder": PatchEncoder,
-            "MLP": MLP,
-            "Block": Block,
-            "TransformerEncoder": TransformerEncoder,
-            "ContrastiveModel": ContrastiveModel,
-        }
-        contrastive_model = load_model(args.resume_from, custom_objects=custom_objects, compile=False)
-        contrastive_model.compile(contrastive_optimizer=contrastive_optimizer)
-        latest_checkpoint = tf.train.latest_checkpoint(checkpoint_path)
-        if latest_checkpoint:
-            contrastive_model.load_weights(latest_checkpoint)
-            print(f"Loaded weights from {latest_checkpoint}")
-    else:
-        print("Creating a new model...")
-        input_shape = (224, 224, 3)
-        encoder = create_vit_model(input_shape, args.num_patches, args.patch_size, args.projection_dim, args.num_blocks, args.num_heads)
-        contrastive_model = ContrastiveModel(encoder, args.projection_dim, args.temperature)
-        contrastive_model.compile(contrastive_optimizer=contrastive_optimizer)
-        contrastive_model.build(input_shape=[(None, 224, 224, 3), (None, 224, 224, 3)])
+        # Load or create model
+        if args.resume_from and tf.io.gfile.exists(args.resume_from):
+            print(f"Loading model from {args.resume_from}...")
+            custom_objects = {
+                "PatchExtractor": PatchExtractor,
+                "PatchEncoder": PatchEncoder,
+                "MLP": MLP,
+                "Block": Block,
+                "TransformerEncoder": TransformerEncoder,
+                "ContrastiveModel": ContrastiveModel,
+            }
+            contrastive_model = load_model(args.resume_from, custom_objects=custom_objects, compile=False)
+            contrastive_model.compile(contrastive_optimizer=contrastive_optimizer)
+            latest_checkpoint = tf.train.latest_checkpoint(checkpoint_path)
+            if latest_checkpoint:
+                contrastive_model.load_weights(latest_checkpoint)
+                print(f"Loaded weights from {latest_checkpoint}")
+        else:
+            print("Creating a new model...")
+            input_shape = (224, 224, 3)
+            encoder = create_vit_model(input_shape, args.num_patches, args.patch_size, args.projection_dim, args.num_blocks, args.num_heads)
+            contrastive_model = ContrastiveModel(encoder, args.projection_dim, args.temperature)
+            contrastive_model.compile(contrastive_optimizer=contrastive_optimizer)
+            contrastive_model.build(input_shape=[(None, 224, 224, 3), (None, 224, 224, 3)])
 
-    
+        
 
-    cp_callback = ModelCheckpoint(filepath=checkpoint_path,
-                                                mode="max",
-                                                monitor="c_acc",
-                                                save_best_only=True,
-                                                #save_weights_only=True,
-                                                verbose=1)
-
-    # Early stopping
-    es_callback = tf.keras.callbacks.EarlyStopping(monitor='c_loss',patience=7,
-                                                    mode='min',
-                                                    min_delta=1e-4,
-                                                    restore_best_weights=False,
-                                                    start_from_epoch=1,
+        cp_callback = ModelCheckpoint(filepath=checkpoint_path,
+                                                    mode="max",
+                                                    monitor="c_acc",
+                                                    save_best_only=True,
+                                                    #save_weights_only=True,
                                                     verbose=1)
-    
-    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=tensorboard_log, histogram_freq=1)
 
-    # Train model
-    history = contrastive_model.fit(
-        training_dataset,
-        steps_per_epoch= total_files//args.batch_size,
-        epochs=50,
-        callbacks=[cp_callback, es_callback, tensorboard_callback], 
-        verbose=1
-    )
+        # Early stopping
+        es_callback = tf.keras.callbacks.EarlyStopping(monitor='c_loss',patience=7,
+                                                        mode='min',
+                                                        min_delta=1e-4,
+                                                        restore_best_weights=False,
+                                                        start_from_epoch=1,
+                                                        verbose=1)
+        
+        tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=tensorboard_log, histogram_freq=1)
 
-    # Save history
-    with open(os.path.join(args.output_dir, "training_history.pkl"), "wb") as f:
-        pickle.dump(history.history, f)
+        # Train model
+        history = contrastive_model.fit(
+            training_dataset,
+            steps_per_epoch= total_files//args.batch_size,
+            epochs=50,
+            callbacks=[cp_callback, es_callback, tensorboard_callback], 
+            verbose=1
+        )
 
-    # Save final model
-    model_save_path = os.path.join(args.output_dir, "model_save/contrastive_model.keras")
-    contrastive_model.save(model_save_path)
-    print(f"Model saved at {model_save_path}")
+        # Save history
+        with open(os.path.join(args.output_dir, "training_history.pkl"), "wb") as f:
+            pickle.dump(history.history, f)
+
+        # Save final model
+        model_save_path = os.path.join(args.output_dir, "model_save/contrastive_model.keras")
+        contrastive_model.save(model_save_path)
+        print(f"Model saved at {model_save_path}")
