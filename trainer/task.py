@@ -441,6 +441,8 @@ if __name__ == "__main__":
             
         if not tf.io.gfile.exists(os.path.join(args.output_dir, "checkpoints")):
             tf.io.gfile.makedirs(os.path.join(args.output_dir, "checkpoints"))
+        else:
+            print("gfile does not exist!")
             
         if not tf.io.gfile.exists(os.path.join(args.output_dir, "logs")):
             tf.io.gfile.makedirs(os.path.join(args.output_dir, "logs"))
