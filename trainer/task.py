@@ -402,8 +402,8 @@ if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Train a Vision Transformer contrastive model on GCP.")
 
-    parser.add_argument("--input_dir", type=str, default="gs://dataset-fm/dataset-vm/TFRecords", help="The TFRecords directory.")
-    parser.add_argument("--output_dir", type=str, default="gs://dataset-fm/output", help="The directory to save the model and checkpoint.")
+    parser.add_argument("--input_dir", type=str, default="gs://dataset-fm/dataset-vm/TFRecords", help="The TFRecords directory.") # Esse caminho vai funcionar?
+    parser.add_argument("--output_dir", type=str, default="gs://dataset-fm/output-tpu", help="The directory to save the model and checkpoint.")
     parser.add_argument("--resume_from", type=str, default=None, help="Path to a saved model to resume training.")
     parser.add_argument("--learning_rate", type=float, default=5e-5, help="Learning rate for training.")
     parser.add_argument("--batch_size", type=int, default=2048, help="Batch size for training.")
