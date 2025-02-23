@@ -413,12 +413,13 @@ if __name__ == "__main__":
     parser.add_argument("--num_heads", type=int, default=6, help="Number of attention heads.")
     parser.add_argument("--projection_dim", type=int, default=384, help="Dimension of projection layers.")
     parser.add_argument("--temperature", type=float, default=0.1, help="Temperature for contrastive loss.")
+    parser.add_argument("--tpu", type=str, default=None, help="TPU name to be allocated")
 
     args = parser.parse_args()
     total_files = 1281167
 
     try:
-        cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver()
+        cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu)
         tf.config.experimental_connect_to_cluster(cluster_resolver)
         tf.tpu.experimental.initialize_tpu_system(cluster_resolver)
         strategy = tf.distribute.TPUStrategy(cluster_resolver)
