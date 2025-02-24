@@ -472,7 +472,7 @@ if __name__ == "__main__":
                     "ContrastiveModel": ContrastiveModel,
                 }
                 contrastive_model = load_model(args.resume_from, custom_objects=custom_objects, compile=False)
-                contrastive_model.compile(contrastive_optimizer=contrastive_optimizer)
+                contrastive_model.compile(contrastive_optimizer=contrastive_optimizer, steps_per_execution=4)
                 latest_checkpoint = tf.train.latest_checkpoint(checkpoint_path)
                 if latest_checkpoint:
                     contrastive_model.load_weights(latest_checkpoint)
@@ -482,7 +482,7 @@ if __name__ == "__main__":
                 input_shape = (224, 224, 3)
                 encoder = create_vit_model(input_shape, args.num_patches, args.patch_size, args.projection_dim, args.num_blocks, args.num_heads)
                 contrastive_model = ContrastiveModel(encoder, args.projection_dim, args.temperature)
-                contrastive_model.compile(contrastive_optimizer=contrastive_optimizer)
+                contrastive_model.compile(contrastive_optimizer=contrastive_optimizer, steps_per_execution=4)
                 contrastive_model.build(input_shape=[(None, 224, 224, 3), (None, 224, 224, 3)])
 
             
@@ -507,7 +507,7 @@ if __name__ == "__main__":
             # Train model
             history = contrastive_model.fit(
                 training_dataset,
-                steps_per_execution= 3,
+                #steps_per_epoch= total_files//args.batch_size,
                 epochs=50,
                 callbacks=[cp_callback, es_callback, tensorboard_callback], 
                 verbose=1
