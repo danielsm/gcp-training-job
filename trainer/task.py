@@ -405,7 +405,7 @@ if __name__ == "__main__":
     parser.add_argument("--input_dir", type=str, default="gs://dataset-dcts-fm/TFRecords", help="The TFRecords directory.") # Esse caminho vai funcionar?
     parser.add_argument("--output_dir", type=str, default="gs://dataset-dcts-fm/output-tpu", help="The directory to save the model and checkpoint.")
     parser.add_argument("--resume_from", type=str, default=None, help="Path to a saved model to resume training.")
-    parser.add_argument("--learning_rate", type=float, default=5e-5, help="Learning rate for training.")
+    parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate for training.")
     parser.add_argument("--batch_size", type=int, default=2048, help="Batch size for training.")
     parser.add_argument("--patch_size", type=int, default=8, help="Size of the patch the image is divided.")
     parser.add_argument("--num_patches", type=int, default=784, help="Number of patches resulted from the image.")
@@ -507,7 +507,7 @@ if __name__ == "__main__":
             # Train model
             history = contrastive_model.fit(
                 training_dataset,
-                steps_per_epoch= total_files//args.batch_size,
+                steps_per_execution= 3,
                 epochs=50,
                 callbacks=[cp_callback, es_callback, tensorboard_callback], 
                 verbose=1
