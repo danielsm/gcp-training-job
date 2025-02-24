@@ -215,7 +215,7 @@ def create_vit_model(input_shape, num_patches, patch_size=8, projection_dim=192,
 
     y = GlobalAveragePooling1D()(representation)
 
-    y =  MLP(projection_dim, num_classes, 0.2)(y) if num_classes > 0 else Lambda(lambda x: x)(y)
+    y =  MLP(projection_dim, num_classes, dropout_rate)(y) if num_classes > 0 else Lambda(lambda x: x)(y)
 
     model = Model(inputs=input, outputs=y)
     model.patchExtractor = patchExtractor
@@ -504,23 +504,23 @@ if __name__ == "__main__":
             
             tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=tensorboard_log, histogram_freq=1)
 
-            # Train model
-            history = contrastive_model.fit(
-                training_dataset,
-                #steps_per_epoch= total_files//args.batch_size,
-                epochs=50,
-                callbacks=[cp_callback, es_callback, tensorboard_callback], 
-                verbose=1
-            )
+        # Train model
+        history = contrastive_model.fit(
+            training_dataset,
+            #steps_per_epoch= total_files//args.batch_size,
+            epochs=50,
+            callbacks=[cp_callback, es_callback, tensorboard_callback], 
+            verbose=1
+        )
 
-            # Save history
-            with open(os.path.join(args.output_dir, "training_history.pkl"), "wb") as f:
-                pickle.dump(history.history, f)
+        # Save history
+        with open(os.path.join(args.output_dir, "training_history.pkl"), "wb") as f:
+            pickle.dump(history.history, f)
 
-            # Save final model
-            model_save_path = os.path.join(args.output_dir, "model_save/contrastive_model.keras")
-            contrastive_model.save(model_save_path)
-            print(f"Model saved at {model_save_path}")
+        # Save final model
+        model_save_path = os.path.join(args.output_dir, "model_save/contrastive_model.keras")
+        contrastive_model.save(model_save_path)
+        print(f"Model saved at {model_save_path}")
 
     except Exception as e:
         print(f"⚠️ Erro: {e}")
