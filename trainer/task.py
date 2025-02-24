@@ -362,7 +362,7 @@ class ContrastiveModel(keras.Model):
         encoder = keras.Model.from_config(encoder_config, custom_objects=custom_objects)  # Restore encoder model
         return cls(encoder=encoder, **config)
     
-    @tf.function(jit_compile=True)
+    @tf.function
     def train_step(self, data):
         
 
@@ -420,7 +420,7 @@ if __name__ == "__main__":
 
     print("Arguments:", args.input_dir, args.output_dir, args.resume_from, args.learning_rate, args.batch_size, args.patch_size, args.num_patches, args.num_blocks, args.num_heads, args.projection_dim, args.temperature, args.tpu)
     try:
-        cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu="")
+        cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu)
         tf.config.experimental_connect_to_cluster(cluster_resolver)
         tf.tpu.experimental.initialize_tpu_system(cluster_resolver)
         strategy = tf.distribute.TPUStrategy(cluster_resolver)
