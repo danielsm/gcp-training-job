@@ -362,7 +362,7 @@ class ContrastiveModel(keras.Model):
         encoder = keras.Model.from_config(encoder_config, custom_objects=custom_objects)  # Restore encoder model
         return cls(encoder=encoder, **config)
     
-    @tf.function
+    @tf.function(jit_compile=False)
     def train_step(self, data):
         
 
@@ -418,7 +418,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     total_files = 1281167
 
-    print("Arguments:", args._get_args())
+    print("Arguments:", args.input_dir, args.output_dir, args.resume_from, args.learning_rate, args.batch_size, args.patch_size, args.num_patches, args.num_blocks, args.num_heads, args.projection_dim, args.temperature, args.tpu)
     try:
         cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu)
         tf.config.experimental_connect_to_cluster(cluster_resolver)
@@ -443,8 +443,6 @@ if __name__ == "__main__":
             
         if not tf.io.gfile.exists(os.path.join(args.output_dir, "checkpoints")):
             tf.io.gfile.makedirs(os.path.join(args.output_dir, "checkpoints"))
-        else:
-            print("gfile does not exist!")
             
         if not tf.io.gfile.exists(os.path.join(args.output_dir, "logs")):
             tf.io.gfile.makedirs(os.path.join(args.output_dir, "logs"))
@@ -453,7 +451,7 @@ if __name__ == "__main__":
             tf.io.gfile.makedirs(os.path.join(args.output_dir, "model_save"))
 
 
-        checkpoint_path = os.path.join(args.output_dir, "checkpoints/cp_contrastive-vit.keras")
+        checkpoint_path = os.path.join(args.output_dir, "checkpoints/cp_contrastive-vit.weights.h5")
         tensorboard_log = os.path.join(args.output_dir, "logs")
         # Load dataset
 
@@ -493,7 +491,7 @@ if __name__ == "__main__":
                                                         mode="max",
                                                         monitor="c_acc",
                                                         save_best_only=True,
-                                                        #save_weights_only=True,
+                                                        save_weights_only=True,
                                                         verbose=1)
 
             # Early stopping
