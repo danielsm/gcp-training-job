@@ -180,7 +180,7 @@ class TransformerEncoder(Layer):
         self.norm = LayerNormalization(epsilon=1e-6)
         self.dropout = Dropout(self.dropout_rate)
         self.attention_scores = []
-
+    
     def call(self, x):
         # Create a [batch_size, projection_dim] tensor.
         #self.attention_scores = []
@@ -362,7 +362,7 @@ class ContrastiveModel(keras.Model):
         encoder = keras.Model.from_config(encoder_config, custom_objects=custom_objects)  # Restore encoder model
         return cls(encoder=encoder, **config)
     
-    @tf.function
+    @tf.function(jit_compile=True)
     def train_step(self, data):
         
 
