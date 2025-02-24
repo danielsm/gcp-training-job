@@ -43,7 +43,9 @@ def load_compressed_tfrecord_dataset(tfrecord_dir, batch_size=16):
     )
 
     dataset = dataset.map(_parse_function, num_parallel_calls=tf.data.AUTOTUNE)
-    dataset = dataset.batch(batch_size, drop_remainder=True).prefetch(tf.data.AUTOTUNE)
+    buffer_size = 5000  # Adjust based on dataset size
+    dataset = dataset.shuffle(buffer_size)
+    dataset = dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
     return dataset
 
 
@@ -339,12 +341,12 @@ class ContrastiveModel(keras.Model):
         )
         return (loss_1_2 + loss_2_1) / 2
     
-    def call(self, inputs, training=False):
-        features_1 = self.encoder(inputs[0], training=training)
-        features_2 = self.encoder(inputs[1], training=training)
-        projections_1 = self.projection_head(features_1, training=training)
-        projections_2 = self.projection_head(features_2, training=training)
-        return projections_1, projections_2
+    # def call(self, inputs, training=False):
+    #     features_1 = self.encoder(inputs[0], training=training)
+    #     features_2 = self.encoder(inputs[1], training=training)
+    #     projections_1 = self.projection_head(features_1, training=training)
+    #     projections_2 = self.projection_head(features_2, training=training)
+    #     return projections_1, projections_2
 
     def get_config(self):
         config = super().get_config()
