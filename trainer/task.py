@@ -418,12 +418,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
     total_files = 1281167
 
+    print("Arguments:", args._get_args())
     try:
         cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu)
         tf.config.experimental_connect_to_cluster(cluster_resolver)
         tf.tpu.experimental.initialize_tpu_system(cluster_resolver)
         strategy = tf.distribute.TPUStrategy(cluster_resolver)
         print("✅ TPU detectada e inicializada corretamente.")
+        print(f"TensorFlow can access {len(tf.config.list_logical_devices('TPU'))} TPU cores")
     except Exception as e:
         print(f"⚠️ Erro ao conectar à TPU: {e}")
         print("Executando em CPU/GPU em vez de TPU...")
