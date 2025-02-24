@@ -215,7 +215,7 @@ def create_vit_model(input_shape, num_patches, patch_size=8, projection_dim=192,
 
     y = GlobalAveragePooling1D()(representation)
 
-    y =  MLP(projection_dim, num_classes, 0.2)(y) if num_classes > 0 else Lambda(lambda x: x)(y)
+    y =  MLP(projection_dim, num_classes, dropout_rate)(y) if num_classes > 0 else Lambda(lambda x: x)(y)
 
     model = Model(inputs=input, outputs=y)
     model.patchExtractor = patchExtractor
