@@ -14,9 +14,7 @@ from tensorflow.keras.layers import Add, Dense, Dropout, Embedding, GlobalAverag
 import pickle  
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.mixed_precision import experimental as mixed_precision
-policy = mixed_precision.Policy('mixed_bfloat16')
-mixed_precision.set_policy(policy)
+
 
 def _parse_function(proto):
     """Parse a single TFRecord example"""
@@ -135,7 +133,7 @@ class MLP(Layer):
         })
         return config
 
-    
+
 class Block(Layer):
     def __init__(self, projection_dim, num_heads=4, dropout_rate=0.1):
         super(Block, self).__init__()
@@ -204,6 +202,9 @@ class TransformerEncoder(Layer):
         })
         return config
 
+class Identity(Layer):
+    def call(self, x):
+        return tf.identity(x)
 
 def create_vit_model(input_shape, num_patches, patch_size=8, projection_dim=192, num_blocks=12, num_heads=6, num_classes=0, dropout_rate=0.5):
     input = Input(shape=input_shape)
@@ -219,7 +220,7 @@ def create_vit_model(input_shape, num_patches, patch_size=8, projection_dim=192,
 
     y = GlobalAveragePooling1D()(representation)
 
-    y =  MLP(projection_dim, num_classes, dropout_rate)(y) if num_classes > 0 else tf.identity(y)
+    y =  MLP(projection_dim, num_classes, dropout_rate)(y) if num_classes > 0 else Identity()(y)
 
     model = Model(inputs=input, outputs=y)
     model.patchExtractor = patchExtractor
