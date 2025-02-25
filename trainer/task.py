@@ -14,7 +14,9 @@ from tensorflow.keras.layers import Add, Dense, Dropout, Embedding, GlobalAverag
 import pickle  
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras.optimizers import Adam
-
+from tensorflow.keras.mixed_precision import experimental as mixed_precision
+policy = mixed_precision.Policy('mixed_bfloat16')
+mixed_precision.set_policy(policy)
 
 def _parse_function(proto):
     """Parse a single TFRecord example"""
@@ -43,7 +45,7 @@ def load_compressed_tfrecord_dataset(tfrecord_dir, batch_size=16):
     )
 
     dataset = dataset.map(_parse_function, num_parallel_calls=tf.data.AUTOTUNE)
-    buffer_size = 5000  # Adjust based on dataset size
+    buffer_size = 1000  # Adjust based on dataset size
     dataset = dataset.shuffle(buffer_size)
     dataset = dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
     return dataset
@@ -217,7 +219,7 @@ def create_vit_model(input_shape, num_patches, patch_size=8, projection_dim=192,
 
     y = GlobalAveragePooling1D()(representation)
 
-    y =  MLP(projection_dim, num_classes, dropout_rate)(y) if num_classes > 0 else Lambda(lambda x: x)(y)
+    y =  MLP(projection_dim, num_classes, dropout_rate)(y) if num_classes > 0 else tf.identity(y)
 
     model = Model(inputs=input, outputs=y)
     model.patchExtractor = patchExtractor
@@ -458,7 +460,9 @@ if __name__ == "__main__":
         # Load dataset
 
         training_dataset = load_compressed_tfrecord_dataset(args.input_dir, batch_size=args.batch_size)
-
+        small_data = training_dataset.take(100)
+        
+        
         with strategy.scope():
             contrastive_optimizer=Adam(learning_rate=args.learning_rate)
 
