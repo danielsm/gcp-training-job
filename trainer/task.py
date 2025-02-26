@@ -394,7 +394,7 @@ class ContrastiveModel(keras.Model):
         encoder = keras.Model.from_config(encoder_config, custom_objects=custom_objects)  # Restore encoder model
         return cls(encoder=encoder, **config)
     
-    @tf.function(jit_compile=True)
+    @tf.function
     def train_step(self, data):
         
 
@@ -507,92 +507,92 @@ if __name__ == "__main__":
             contrastive_model.compile(contrastive_optimizer=contrastive_optimizer, steps_per_execution=4)
             contrastive_model.build(input_shape=[(None, 224, 224, 3), (None, 224, 224, 3)])
 
-            # Initialize start batch and best accuracy
-            start_batch = 0
-            best_accuracy = 0.0
+        # Initialize start batch and best accuracy
+        start_batch = 0
+        best_accuracy = 0.0
 
-            if checkpoint_files:
-                # Extract batch numbers and find the latest
-                latest_checkpoint = max(checkpoint_files, key=lambda f: int(re.search(r"cp_batch-(\d+).ckpt", f).group(1)))
+        if checkpoint_files:
+            # Extract batch numbers and find the latest
+            latest_checkpoint = max(checkpoint_files, key=lambda f: int(re.search(r"cp_batch-(\d+).ckpt", f).group(1)))
 
-                # Extract the last batch number
-                start_batch = int(re.search(r"cp_batch-(\d+).ckpt", latest_checkpoint).group(1))
+            # Extract the last batch number
+            start_batch = int(re.search(r"cp_batch-(\d+).ckpt", latest_checkpoint).group(1))
 
-                # Load the latest weights
-                contrastive_model.load_weights(latest_checkpoint)
+            # Load the latest weights
+            contrastive_model.load_weights(latest_checkpoint)
 
-                print(f"Loaded weights from: {latest_checkpoint}, resuming from batch {start_batch}")
+            print(f"Loaded weights from: {latest_checkpoint}, resuming from batch {start_batch}")
 
-                # Load best accuracy if available
-                best_acc_file = os.path.join(checkpoint_path, "best_accuracy.txt")
-                if os.path.exists(best_acc_file):
-                    with open(best_acc_file, "r") as f:
-                        best_accuracy = float(f.read().strip()) 
-                    print(f"Best accuracy loaded: {best_accuracy}")
-            else:
-                print("No checkpoint found. Starting from batch 0.")
+            # Load best accuracy if available
+            best_acc_file = os.path.join(checkpoint_path, "best_accuracy.txt")
+            if os.path.exists(best_acc_file):
+                with open(best_acc_file, "r") as f:
+                    best_accuracy = float(f.read().strip()) 
+                print(f"Best accuracy loaded: {best_accuracy}")
+        else:
+            print("No checkpoint found. Starting from batch 0.")
 
 
-            print(f"Training {total_batches} batches per epoch, starting from epoch {start_epoch + 1}")
+        print(f"Training {total_batches} batches per epoch, starting from epoch {start_epoch + 1}")
 
-            # Open log file in append mode
-            # Ensure the log file exists
-            
-            if not tf.io.gfile.exists(log_file):
-                with tf.io.gfile.GFile(log_file, "w") as f:
-                    f.write("Training Log\n")
-            with tf.io.gfile.GFile(log_file, "a") as log:
-                for epoch in range(start_epoch, args.total_epochs):
-                    print(f"\nEpoch {epoch + 1}/{args.total_epochs}")
+        # Open log file in append mode
+        # Ensure the log file exists
+        
+        if not tf.io.gfile.exists(log_file):
+            with tf.io.gfile.GFile(log_file, "w") as f:
+                f.write("Training Log\n")
+        with tf.io.gfile.GFile(log_file, "a") as log:
+            for epoch in range(start_epoch, args.total_epochs):
+                print(f"\nEpoch {epoch + 1}/{args.total_epochs}")
 
-                    # Initialize progress bar
-                    with tqdm(total=total_batches, desc="Batch", unit="batch") as pbar:
-                        for num_batch in range(total_batches):
-                            batch = next(generator)
+                # Initialize progress bar
+                with tqdm(total=total_batches, desc="Batch", unit="batch") as pbar:
+                    for num_batch in range(total_batches):
+                        batch = next(generator)
 
-                            # Train on batch
-                            logs = contrastive_model.train_step(batch)
+                        # Train on batch
+                        logs = contrastive_model.train_step(batch)
 
-                            # Convert tensors to float values
-                            formatted_logs = {k: float(v.numpy()) for k, v in logs.items()}
+                        # Convert tensors to float values
+                        formatted_logs = {k: float(v.numpy()) for k, v in logs.items()}
 
-                            # Format logs for better readability
-                            formatted_logs_str = ", ".join([f"{k}: {v:.5f}" for k, v in formatted_logs.items()])
+                        # Format logs for better readability
+                        formatted_logs_str = ", ".join([f"{k}: {v:.5f}" for k, v in formatted_logs.items()])
 
-                            # Update progress bar description with metrics
-                            pbar.set_postfix(formatted_logs)
-                            pbar.update(1)  # Update progress bar
+                        # Update progress bar description with metrics
+                        pbar.set_postfix(formatted_logs)
+                        pbar.update(1)  # Update progress bar
 
-                            # Save logs
-                            log_entry = f"Epoch {epoch + 1}, Batch {num_batch + 1}/{total_batches}: {formatted_logs_str}\n"
-                            log.write(log_entry)
+                        # Save logs
+                        log_entry = f"Epoch {epoch + 1}, Batch {num_batch + 1}/{total_batches}: {formatted_logs_str}\n"
+                        log.write(log_entry)
 
-                            # Extract current accuracy
-                            current_accuracy = formatted_logs["c_acc"]
+                        # Extract current accuracy
+                        current_accuracy = formatted_logs["c_acc"]
 
-                            # Save the best model only after halfway
-                            if current_accuracy > best_accuracy and current_accuracy > 0.5:
-                                best_accuracy = current_accuracy
+                        # Save the best model only after halfway
+                        if current_accuracy > best_accuracy and current_accuracy > 0.5:
+                            best_accuracy = current_accuracy
 
-                                # Save best model checkpoint
-                                contrastive_model.save_weights(best_model_path)
-                                print(f"\nNew best accuracy {best_accuracy:.5f}, model saved at {best_model_path}")
+                            # Save best model checkpoint
+                            contrastive_model.save_weights(best_model_path)
+                            print(f"\nNew best accuracy {best_accuracy:.5f}, model saved at {best_model_path}")
 
-                                # Log best accuracy
-                                log.write(f"New best accuracy {best_accuracy:.5f}, model saved at {best_model_path}\n")
+                            # Log best accuracy
+                            log.write(f"New best accuracy {best_accuracy:.5f}, model saved at {best_model_path}\n")
 
-                                # Save best accuracy to a file
-                                with open(os.path.join(checkpoint_path, "best_accuracy.txt"), "w") as f:
-                                    f.write(f"{best_accuracy}")
+                            # Save best accuracy to a file
+                            with open(os.path.join(checkpoint_path, "best_accuracy.txt"), "w") as f:
+                                f.write(f"{best_accuracy}")
 
-                            # Save checkpoint every 100 batches
-                            if (num_batch + 1) % 500 == 0:
-                                batchcheckpoint_path = f"{checkpoint_path}/cp_batch-{(epoch * total_batches) + num_batch + 1}.weights.h5"
-                                contrastive_model.save_weights(batchcheckpoint_path)
+                        # Save checkpoint every 100 batches
+                        if (num_batch + 1) % 500 == 0:
+                            batchcheckpoint_path = f"{checkpoint_path}/cp_batch-{(epoch * total_batches) + num_batch + 1}.weights.h5"
+                            contrastive_model.save_weights(batchcheckpoint_path)
 
-                                # Save checkpoint info to log
-                                log.write(f"Checkpoint saved at {batchcheckpoint_path}\n")
-                                print(f"\nCheckpoint saved at {batchcheckpoint_path}")
+                            # Save checkpoint info to log
+                            log.write(f"Checkpoint saved at {batchcheckpoint_path}\n")
+                            print(f"\nCheckpoint saved at {batchcheckpoint_path}")
 
         # Save final model
         model_save_path = os.path.join(args.output_dir, "model_save/contrastive_model.keras")
