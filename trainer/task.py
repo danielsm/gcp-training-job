@@ -1,20 +1,15 @@
 import os
 import argparse
 import glob
-import random
 import numpy as np
 import tensorflow as tf
 import keras
 from keras import layers
-from keras.models import model_from_json
-from tensorflow.keras.models import load_model
-import math
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Add, Dense, Dropout, Embedding, GlobalAveragePooling1D, Input, Lambda, Layer, LayerNormalization, MultiHeadAttention, Flatten, Conv2D, Reshape
-import pickle  
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras.optimizers import Adam
-
+import re
+from tqdm import tqdm
 
 def _parse_function(proto):
     """Parse a single TFRecord example"""
@@ -43,61 +38,87 @@ def load_compressed_tfrecord_dataset(tfrecord_dir, batch_size=16):
     )
 
     dataset = dataset.map(_parse_function, num_parallel_calls=tf.data.AUTOTUNE)
-    buffer_size = 1000  # Adjust based on dataset size
-    dataset = dataset.shuffle(buffer_size)
     dataset = dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
     return dataset
 
 
-class PatchExtractor(Layer):
-    def __init__(self, patch_size, **kwargs):
-        super(PatchExtractor, self).__init__(**kwargs)
-        self.patch_size = patch_size
+# class PatchExtractor(Layer):
+#     def __init__(self, patch_size, **kwargs):
+#         super(PatchExtractor, self).__init__(**kwargs)
+#         self.patch_size = patch_size
 
-    def call(self, images):
-        batch_size = tf.shape(images)[0]
-        patches = tf.image.extract_patches(
-            images=images,
-            sizes=[1, self.patch_size, self.patch_size, 1],
-            strides=[1, self.patch_size, self.patch_size, 1],
-            rates=[1, 1, 1, 1],
-            padding="VALID",
-        )
-        patch_dims = patches.shape[-1]
-        patches = tf.reshape(patches, [batch_size, -1, patch_dims])
-        return patches
+#     def call(self, images):
+#         batch_size = tf.shape(images)[0]
+#         patches = tf.image.extract_patches(
+#             images=images,
+#             sizes=[1, self.patch_size, self.patch_size, 1],
+#             strides=[1, self.patch_size, self.patch_size, 1],
+#             rates=[1, 1, 1, 1],
+#             padding="VALID",
+#         )
+#         patch_dims = patches.shape[-1]
+#         patches = tf.reshape(patches, [batch_size, -1, patch_dims])
+#         return patches
     
-    def get_config(self):
-        config = super().get_config()
-        config.update({"patch_size": self.patch_size})
-        return config
+#     def get_config(self):
+#         config = super().get_config()
+#         config.update({"patch_size": self.patch_size})
+#         return config
         
+# class PatchEncoder(Layer):
+#     def __init__(self, num_patches=196, projection_dim=768, **kwargs):
+#         super(PatchEncoder, self).__init__(**kwargs)
+#         self.num_patches = num_patches
+#         self.projection_dim = projection_dim
+#         w_init = tf.random_normal_initializer()
+#         class_token = w_init(shape=(1, self.projection_dim), dtype="float32")
+#         self.class_token = tf.Variable(initial_value=class_token, trainable=True)
+#         self.projection = Dense(units=self.projection_dim)
+#         self.position_embedding = Embedding(input_dim=self.num_patches+1, output_dim=self.projection_dim)
+
+#     def call(self, patch):
+#         batch = tf.shape(patch)[0]
+#         # reshape the class token embedins
+#         class_token = tf.tile(self.class_token, multiples = [batch, 1])
+#         class_token = tf.reshape(class_token, (batch, 1, self.projection_dim))
+#         # calculate patches embeddings
+#         patches_embed = self.projection(patch)
+#         patches_embed = tf.concat([patches_embed, class_token], 1)
+#         # calcualte positional embeddings
+#         positions = tf.range(start=0, limit=self.num_patches+1, delta=1)
+#         positions_embed = self.position_embedding(positions)
+#         # add both embeddings
+#         encoded = patches_embed + positions_embed
+#         return encoded
+    
+#     def get_config(self):
+#         config = super().get_config()
+#         config.update({
+#             "num_patches": self.num_patches,
+#             "projection_dim": self.projection_dim,
+#         })
+#         return config
+
 class PatchEncoder(Layer):
     def __init__(self, num_patches=196, projection_dim=768, **kwargs):
         super(PatchEncoder, self).__init__(**kwargs)
         self.num_patches = num_patches
         self.projection_dim = projection_dim
-        w_init = tf.random_normal_initializer()
-        class_token = w_init(shape=(1, self.projection_dim), dtype="float32")
-        self.class_token = tf.Variable(initial_value=class_token, trainable=True)
         self.projection = Dense(units=self.projection_dim)
         self.position_embedding = Embedding(input_dim=self.num_patches+1, output_dim=self.projection_dim)
 
     def call(self, patch):
         batch = tf.shape(patch)[0]
-        # reshape the class token embedins
-        class_token = tf.tile(self.class_token, multiples = [batch, 1])
-        class_token = tf.reshape(class_token, (batch, 1, self.projection_dim))
+
         # calculate patches embeddings
         patches_embed = self.projection(patch)
-        patches_embed = tf.concat([patches_embed, class_token], 1)
         # calcualte positional embeddings
-        positions = tf.range(start=0, limit=self.num_patches+1, delta=1)
+        positions = tf.range(start=0, limit=self.num_patches, delta=1)
         positions_embed = self.position_embedding(positions)
         # add both embeddings
         encoded = patches_embed + positions_embed
         return encoded
-    
+
     def get_config(self):
         config = super().get_config()
         config.update({
@@ -209,8 +230,14 @@ class Identity(Layer):
 def create_vit_model(input_shape, num_patches, patch_size=8, projection_dim=192, num_blocks=12, num_heads=6, num_classes=0, dropout_rate=0.5):
     input = Input(shape=input_shape)
   
-    patchExtractor = PatchExtractor(patch_size)
+    # patchExtractor = PatchExtractor(patch_size)
+    # patches = patchExtractor(input)
+    patchExtractor = Conv2D(filters=projection_dim, kernel_size=(patch_size, patch_size), strides=(patch_size, patch_size))
     patches = patchExtractor(input)
+
+    reshape = Reshape((num_patches, projection_dim))
+    patches = reshape(patches)
+    
 
     patchEncoder = PatchEncoder(num_patches, projection_dim)
     patches_embed = patchEncoder(patches)
@@ -224,6 +251,7 @@ def create_vit_model(input_shape, num_patches, patch_size=8, projection_dim=192,
 
     model = Model(inputs=input, outputs=y)
     model.patchExtractor = patchExtractor
+    model.reshape = reshape
     model.patchEncoder = patchEncoder
     model.transformers = transformers
    
@@ -231,9 +259,9 @@ def create_vit_model(input_shape, num_patches, patch_size=8, projection_dim=192,
 
 
 def get_last_selfattention(model, x, training=False):
-    #x = model.input(x)
+    
     patches = model.patchExtractor(x)
-    #patches = model.reshape(patches)
+    patches = model.reshape(patches)
     patches_embed = model.patchEncoder(patches)
 
     for i, blk in enumerate(model.transformers.blocks):
@@ -245,7 +273,7 @@ def get_last_selfattention(model, x, training=False):
 def get_intermediate_attention_scores(model, x, n=1, training=False):
 
     patches = model.patchExtractor(x)
-    #patches = model.reshape(patches)
+    patches = model.reshape(patches)
     patches_embed = model.patchEncoder(patches)
 
     output = []
@@ -290,8 +318,7 @@ class ContrastiveModel(keras.Model):
         self.projection_head.summary()
     
     def build(self, input_shape):
-        #print(input_shape)
-        #print(input_shape[0])
+       
         """Ensures that the model is properly built with input shape"""
         self.encoder.build(input_shape=(input_shape[0]))  # Build encoder
         self.projection_head.build(input_shape=(None, self.projection_head_width))  # Build projection head
@@ -344,12 +371,12 @@ class ContrastiveModel(keras.Model):
         )
         return (loss_1_2 + loss_2_1) / 2
     
-    # def call(self, inputs, training=False):
-    #     features_1 = self.encoder(inputs[0], training=training)
-    #     features_2 = self.encoder(inputs[1], training=training)
-    #     projections_1 = self.projection_head(features_1, training=training)
-    #     projections_2 = self.projection_head(features_2, training=training)
-    #     return projections_1, projections_2
+    def call(self, inputs, training=False):
+        features_1 = self.encoder(inputs[0], training=training)
+        features_2 = self.encoder(inputs[1], training=training)
+        projections_1 = self.projection_head(features_1, training=training)
+        projections_2 = self.projection_head(features_2, training=training)
+        return projections_1, projections_2
 
     def get_config(self):
         config = super().get_config()
@@ -398,7 +425,9 @@ class ContrastiveModel(keras.Model):
         self.contrastive_loss_tracker.update_state(contrastive_loss)
         return {m.name: m.result() for m in self.metrics}
 
-
+def dataset_generator(dataset):
+    for batch in dataset:
+        yield batch
 
 
 if __name__ == "__main__":
@@ -408,10 +437,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a Vision Transformer contrastive model on GCP.")
 
     parser.add_argument("--input_dir", type=str, default="gs://dataset-dcts-fm/TFRecords", help="The TFRecords directory.") # Esse caminho vai funcionar?
-    parser.add_argument("--output_dir", type=str, default="gs://dataset-dcts-fm/output-tpu", help="The directory to save the model and checkpoint.")
+    parser.add_argument("--output_dir", type=str, default="gs://dataset-dcts-fm/output", help="The directory to save the model and checkpoint.")
     parser.add_argument("--resume_from", type=str, default=None, help="Path to a saved model to resume training.")
     parser.add_argument("--learning_rate", type=float, default=5e-4, help="Learning rate for training.")
-    parser.add_argument("--batch_size", type=int, default=2048, help="Batch size for training.")
+    parser.add_argument("--batch_size", type=int, default=384, help="Batch size for training.")
+    parser.add_argument("--total_epochs", type=int, default=50, help="Number of total epochs to run.")
     parser.add_argument("--patch_size", type=int, default=8, help="Size of the patch the image is divided.")
     parser.add_argument("--num_patches", type=int, default=784, help="Number of patches resulted from the image.")
     parser.add_argument("--num_blocks", type=int, default=12, help="Number of transformer blocks.")
@@ -421,9 +451,11 @@ if __name__ == "__main__":
     parser.add_argument("--tpu", type=str, default=None, help="TPU name to be allocated")
 
     args = parser.parse_args()
-    total_files = 1281167
+    start_epoch = 0
+    len_dataset = 1281167
+    total_batches = (len_dataset // args.batch_size) - 1  # Total batches per epoch
 
-    print("Arguments:", args.input_dir, args.output_dir, args.resume_from, args.learning_rate, args.batch_size, args.patch_size, args.num_patches, args.num_blocks, args.num_heads, args.projection_dim, args.temperature, args.tpu)
+    print("Arguments:", args.input_dir, args.output_dir, args.resume_from, args.learning_rate, args.batch_size, args.total_epochs, args.patch_size, args.num_patches, args.num_blocks, args.num_heads, args.projection_dim, args.temperature, args.tpu)
     try:
         cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu)
         tf.config.experimental_connect_to_cluster(cluster_resolver)
@@ -456,73 +488,111 @@ if __name__ == "__main__":
             tf.io.gfile.makedirs(os.path.join(args.output_dir, "model_save"))
 
 
-        checkpoint_path = os.path.join(args.output_dir, "checkpoints/cp_contrastive-vit.weights.h5")
-        tensorboard_log = os.path.join(args.output_dir, "logs")
-        # Load dataset
-
-        training_dataset = load_compressed_tfrecord_dataset(args.input_dir, batch_size=args.batch_size)
-        small_data = training_dataset.take(100)
+        checkpoint_path = os.path.join(args.output_dir, "checkpoints")
+        model_save_path = os.path.join(args.output_dir, "model_save")
+        logs_path = os.path.join(args.output_dir, "logs")
+        log_file = os.path.join(logs_path, "training_log.txt")
+        best_model_path = os.path.join(checkpoint_path, "best_model.weights.h5")
         
+        # Find all saved checkpoints
+        checkpoint_files = glob.glob(os.path.join(checkpoint_path, "cp_batch-*.weights.h5"))
+        
+        # Load dataset
+        training_dataset = load_compressed_tfrecord_dataset(args.input_dir, batch_size=args.batch_size)
+        generator = dataset_generator(training_dataset)
         
         with strategy.scope():
             contrastive_optimizer=Adam(learning_rate=args.learning_rate)
 
-            # Load or create model
-            if args.resume_from and tf.io.gfile.exists(args.resume_from):
-                print(f"Loading model from {args.resume_from}...")
-                custom_objects = {
-                    "PatchExtractor": PatchExtractor,
-                    "PatchEncoder": PatchEncoder,
-                    "MLP": MLP,
-                    "Block": Block,
-                    "TransformerEncoder": TransformerEncoder,
-                    "ContrastiveModel": ContrastiveModel,
-                }
-                contrastive_model = load_model(args.resume_from, custom_objects=custom_objects, compile=False)
-                contrastive_model.compile(contrastive_optimizer=contrastive_optimizer, steps_per_execution=4)
-                latest_checkpoint = tf.train.latest_checkpoint(checkpoint_path)
-                if latest_checkpoint:
-                    contrastive_model.load_weights(latest_checkpoint)
-                    print(f"Loaded weights from {latest_checkpoint}")
+    
+            print("Creating a new model...")
+            input_shape = (224, 224, 3)
+            encoder = create_vit_model(input_shape, args.num_patches, args.patch_size, args.projection_dim, args.num_blocks, args.num_heads)
+            contrastive_model = ContrastiveModel(encoder, args.projection_dim, args.temperature)
+            contrastive_model.compile(contrastive_optimizer=contrastive_optimizer, steps_per_execution=4)
+            contrastive_model.build(input_shape=[(None, 224, 224, 3), (None, 224, 224, 3)])
+
+            # Initialize start batch and best accuracy
+            start_batch = 0
+            best_accuracy = 0.0
+
+            if checkpoint_files:
+                # Extract batch numbers and find the latest
+                latest_checkpoint = max(checkpoint_files, key=lambda f: int(re.search(r"cp_batch-(\d+).ckpt", f).group(1)))
+                
+                # Extract the last batch number
+                start_batch = int(re.search(r"cp_batch-(\d+).ckpt", latest_checkpoint).group(1))
+
+                # Load the latest weights
+                contrastive_model.load_weights(latest_checkpoint)
+                
+                print(f"Loaded weights from: {latest_checkpoint}, resuming from batch {start_batch}")
+                
+                # Load best accuracy if available
+                best_acc_file = os.path.join(checkpoint_path, "best_accuracy.txt")
+                if os.path.exists(best_acc_file):
+                    with open(best_acc_file, "r") as f:
+                        best_accuracy = float(f.read().strip()) 
+                    print(f"Best accuracy loaded: {best_accuracy}")
             else:
-                print("Creating a new model...")
-                input_shape = (224, 224, 3)
-                encoder = create_vit_model(input_shape, args.num_patches, args.patch_size, args.projection_dim, args.num_blocks, args.num_heads)
-                contrastive_model = ContrastiveModel(encoder, args.projection_dim, args.temperature)
-                contrastive_model.compile(contrastive_optimizer=contrastive_optimizer, steps_per_execution=4)
-                contrastive_model.build(input_shape=[(None, 224, 224, 3), (None, 224, 224, 3)])
+                print("No checkpoint found. Starting from batch 0.")
 
-            
 
-            cp_callback = ModelCheckpoint(filepath=checkpoint_path,
-                                                        mode="max",
-                                                        monitor="c_acc",
-                                                        save_best_only=True,
-                                                        save_weights_only=True,
-                                                        verbose=1)
+            print(f"Training {total_batches} batches per epoch, starting from epoch {start_epoch + 1}")
 
-            # Early stopping
-            es_callback = tf.keras.callbacks.EarlyStopping(monitor='c_loss',patience=7,
-                                                            mode='min',
-                                                            min_delta=1e-4,
-                                                            restore_best_weights=False,
-                                                            start_from_epoch=1,
-                                                            verbose=1)
-            
-            tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=tensorboard_log, histogram_freq=1)
+            # Open log file in append mode
+            with open(log_file, "a") as log:
+                for epoch in range(start_epoch, args.total_epochs):
+                    print(f"\nEpoch {epoch + 1}/{args.total_epochs}")
+                    
+                    # Initialize progress bar
+                    with tqdm(total=total_batches, desc="Batch", unit="batch") as pbar:
+                        for num_batch in range(total_batches):
+                            batch = next(generator)
+                            
+                            # Train on batch
+                            logs = contrastive_model.train_step(batch)
+                            
+                            # Convert tensors to float values
+                            formatted_logs = {k: float(v.numpy()) for k, v in logs.items()}
+                            
+                            # Format logs for better readability
+                            formatted_logs_str = ", ".join([f"{k}: {v:.5f}" for k, v in formatted_logs.items()])
+                            
+                            # Update progress bar description with metrics
+                            pbar.set_postfix(formatted_logs)
+                            pbar.update(1)  # Update progress bar
+                            
+                            # Save logs
+                            log_entry = f"Epoch {epoch + 1}, Batch {num_batch + 1}/{total_batches}: {formatted_logs_str}\n"
+                            log.write(log_entry)
 
-        # Train model
-        history = contrastive_model.fit(
-            training_dataset,
-            #steps_per_epoch= total_files//args.batch_size,
-            epochs=50,
-            callbacks=[cp_callback, es_callback, tensorboard_callback], 
-            verbose=1
-        )
+                            # Extract current accuracy
+                            current_accuracy = formatted_logs["c_acc"]
 
-        # Save history
-        with open(os.path.join(args.output_dir, "training_history.pkl"), "wb") as f:
-            pickle.dump(history.history, f)
+                            # Save the best model only after halfway
+                            if current_accuracy > best_accuracy and current_accuracy > 0.5:
+                                best_accuracy = current_accuracy
+                                
+                                # Save best model checkpoint
+                                contrastive_model.save_weights(best_model_path)
+                                print(f"\nNew best accuracy {best_accuracy:.5f}, model saved at {best_model_path}")
+                                
+                                # Log best accuracy
+                                log.write(f"New best accuracy {best_accuracy:.5f}, model saved at {best_model_path}\n")
+                                
+                                # Save best accuracy to a file
+                                with open(os.path.join(checkpoint_path, "best_accuracy.txt"), "w") as f:
+                                    f.write(f"{best_accuracy}")
+
+                            # Save checkpoint every 100 batches
+                            if (num_batch + 1) % 500 == 0:
+                                batchcheckpoint_path = f"{checkpoint_path}/cp_batch-{(epoch * total_batches) + num_batch + 1}.weights.h5"
+                                contrastive_model.save_weights(batchcheckpoint_path)
+
+                                # Save checkpoint info to log
+                                log.write(f"Checkpoint saved at {batchcheckpoint_path}\n")
+                                print(f"\nCheckpoint saved at {batchcheckpoint_path}")
 
         # Save final model
         model_save_path = os.path.join(args.output_dir, "model_save/contrastive_model.keras")
