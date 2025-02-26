@@ -43,61 +43,89 @@ def load_compressed_tfrecord_dataset(tfrecord_dir, batch_size=16):
     )
 
     dataset = dataset.map(_parse_function, num_parallel_calls=tf.data.AUTOTUNE)
-    buffer_size = 1000  # Adjust based on dataset size
+    buffer_size = 10000  # Adjust based on dataset size
     dataset = dataset.shuffle(buffer_size)
     dataset = dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
     return dataset
 
 
-class PatchExtractor(Layer):
-    def __init__(self, patch_size, **kwargs):
-        super(PatchExtractor, self).__init__(**kwargs)
-        self.patch_size = patch_size
+# class PatchExtractor(Layer):
+#     def __init__(self, patch_size, **kwargs):
+#         super(PatchExtractor, self).__init__(**kwargs)
+#         self.patch_size = patch_size
 
-    def call(self, images):
-        batch_size = tf.shape(images)[0]
-        patches = tf.image.extract_patches(
-            images=images,
-            sizes=[1, self.patch_size, self.patch_size, 1],
-            strides=[1, self.patch_size, self.patch_size, 1],
-            rates=[1, 1, 1, 1],
-            padding="VALID",
-        )
-        patch_dims = patches.shape[-1]
-        patches = tf.reshape(patches, [batch_size, -1, patch_dims])
-        return patches
+#     def call(self, images):
+#         batch_size = tf.shape(images)[0]
+#         patches = tf.image.extract_patches(
+#             images=images,
+#             sizes=[1, self.patch_size, self.patch_size, 1],
+#             strides=[1, self.patch_size, self.patch_size, 1],
+#             rates=[1, 1, 1, 1],
+#             padding="VALID",
+#         )
+#         patch_dims = patches.shape[-1]
+#         patches = tf.reshape(patches, [batch_size, -1, patch_dims])
+#         return patches
     
-    def get_config(self):
-        config = super().get_config()
-        config.update({"patch_size": self.patch_size})
-        return config
+#     def get_config(self):
+#         config = super().get_config()
+#         config.update({"patch_size": self.patch_size})
+#         return config
         
+# class PatchEncoder(Layer):
+#     def __init__(self, num_patches=196, projection_dim=768, **kwargs):
+#         super(PatchEncoder, self).__init__(**kwargs)
+#         self.num_patches = num_patches
+#         self.projection_dim = projection_dim
+#         w_init = tf.random_normal_initializer()
+#         class_token = w_init(shape=(1, self.projection_dim), dtype="float32")
+#         self.class_token = tf.Variable(initial_value=class_token, trainable=True)
+#         self.projection = Dense(units=self.projection_dim)
+#         self.position_embedding = Embedding(input_dim=self.num_patches+1, output_dim=self.projection_dim)
+
+#     def call(self, patch):
+#         batch = tf.shape(patch)[0]
+#         # reshape the class token embedins
+#         class_token = tf.tile(self.class_token, multiples = [batch, 1])
+#         class_token = tf.reshape(class_token, (batch, 1, self.projection_dim))
+#         # calculate patches embeddings
+#         patches_embed = self.projection(patch)
+#         patches_embed = tf.concat([patches_embed, class_token], 1)
+#         # calcualte positional embeddings
+#         positions = tf.range(start=0, limit=self.num_patches+1, delta=1)
+#         positions_embed = self.position_embedding(positions)
+#         # add both embeddings
+#         encoded = patches_embed + positions_embed
+#         return encoded
+    
+#     def get_config(self):
+#         config = super().get_config()
+#         config.update({
+#             "num_patches": self.num_patches,
+#             "projection_dim": self.projection_dim,
+#         })
+#         return config
+
 class PatchEncoder(Layer):
     def __init__(self, num_patches=196, projection_dim=768, **kwargs):
         super(PatchEncoder, self).__init__(**kwargs)
         self.num_patches = num_patches
         self.projection_dim = projection_dim
-        w_init = tf.random_normal_initializer()
-        class_token = w_init(shape=(1, self.projection_dim), dtype="float32")
-        self.class_token = tf.Variable(initial_value=class_token, trainable=True)
         self.projection = Dense(units=self.projection_dim)
         self.position_embedding = Embedding(input_dim=self.num_patches+1, output_dim=self.projection_dim)
 
     def call(self, patch):
         batch = tf.shape(patch)[0]
-        # reshape the class token embedins
-        class_token = tf.tile(self.class_token, multiples = [batch, 1])
-        class_token = tf.reshape(class_token, (batch, 1, self.projection_dim))
+
         # calculate patches embeddings
         patches_embed = self.projection(patch)
-        patches_embed = tf.concat([patches_embed, class_token], 1)
         # calcualte positional embeddings
-        positions = tf.range(start=0, limit=self.num_patches+1, delta=1)
+        positions = tf.range(start=0, limit=self.num_patches, delta=1)
         positions_embed = self.position_embedding(positions)
         # add both embeddings
         encoded = patches_embed + positions_embed
         return encoded
-    
+
     def get_config(self):
         config = super().get_config()
         config.update({
@@ -172,7 +200,7 @@ class Block(Layer):
             return y
 
 class TransformerEncoder(Layer):
-    def __init__(self, projection_dim, num_heads=4, num_blocks=8, dropout_rate=0.5, **kwargs):
+    def __init__(self, projection_dim, num_heads=4, num_blocks=8, dropout_rate=0.2, **kwargs):
         super(TransformerEncoder, self).__init__(**kwargs)
         self.projection_dim = projection_dim
         self.num_heads = num_heads
@@ -180,7 +208,7 @@ class TransformerEncoder(Layer):
         self.num_blocks = num_blocks
         self.blocks = [Block(self.projection_dim, self.num_heads, self.dropout_rate) for _ in range(self.num_blocks)]
         self.norm = LayerNormalization(epsilon=1e-6)
-        self.dropout = Dropout(self.dropout_rate)
+        self.dropout = Dropout(0.5)
         self.attention_scores = []
     
     def call(self, x):
@@ -209,8 +237,13 @@ class Identity(Layer):
 def create_vit_model(input_shape, num_patches, patch_size=8, projection_dim=192, num_blocks=12, num_heads=6, num_classes=0, dropout_rate=0.5):
     input = Input(shape=input_shape)
   
-    patchExtractor = PatchExtractor(patch_size)
+    # patchExtractor = PatchExtractor(patch_size)
+    # patches = patchExtractor(input)
+    patchExtractor = Conv2D(filters=projection_dim, kernel_size=(patch_size, patch_size), strides=(patch_size, patch_size))
     patches = patchExtractor(input)
+
+    reshape = Reshape((num_patches, projection_dim))
+    patches = reshape(patches)
 
     patchEncoder = PatchEncoder(num_patches, projection_dim)
     patches_embed = patchEncoder(patches)
@@ -224,6 +257,7 @@ def create_vit_model(input_shape, num_patches, patch_size=8, projection_dim=192,
 
     model = Model(inputs=input, outputs=y)
     model.patchExtractor = patchExtractor
+    model.reshape = reshape
     model.patchEncoder = patchEncoder
     model.transformers = transformers
    
@@ -233,7 +267,7 @@ def create_vit_model(input_shape, num_patches, patch_size=8, projection_dim=192,
 def get_last_selfattention(model, x, training=False):
     #x = model.input(x)
     patches = model.patchExtractor(x)
-    #patches = model.reshape(patches)
+    patches = model.reshape(patches)
     patches_embed = model.patchEncoder(patches)
 
     for i, blk in enumerate(model.transformers.blocks):
@@ -245,7 +279,7 @@ def get_last_selfattention(model, x, training=False):
 def get_intermediate_attention_scores(model, x, n=1, training=False):
 
     patches = model.patchExtractor(x)
-    #patches = model.reshape(patches)
+    patches = model.reshape(patches)
     patches_embed = model.patchEncoder(patches)
 
     output = []
@@ -471,7 +505,7 @@ if __name__ == "__main__":
             if args.resume_from and tf.io.gfile.exists(args.resume_from):
                 print(f"Loading model from {args.resume_from}...")
                 custom_objects = {
-                    "PatchExtractor": PatchExtractor,
+                    #"PatchExtractor": PatchExtractor,
                     "PatchEncoder": PatchEncoder,
                     "MLP": MLP,
                     "Block": Block,
@@ -479,7 +513,7 @@ if __name__ == "__main__":
                     "ContrastiveModel": ContrastiveModel,
                 }
                 contrastive_model = load_model(args.resume_from, custom_objects=custom_objects, compile=False)
-                contrastive_model.compile(contrastive_optimizer=contrastive_optimizer, steps_per_execution=4)
+                contrastive_model.compile(contrastive_optimizer=contrastive_optimizer)
                 latest_checkpoint = tf.train.latest_checkpoint(checkpoint_path)
                 if latest_checkpoint:
                     contrastive_model.load_weights(latest_checkpoint)
@@ -489,7 +523,7 @@ if __name__ == "__main__":
                 input_shape = (224, 224, 3)
                 encoder = create_vit_model(input_shape, args.num_patches, args.patch_size, args.projection_dim, args.num_blocks, args.num_heads)
                 contrastive_model = ContrastiveModel(encoder, args.projection_dim, args.temperature)
-                contrastive_model.compile(contrastive_optimizer=contrastive_optimizer, steps_per_execution=4)
+                contrastive_model.compile(contrastive_optimizer=contrastive_optimizer)
                 contrastive_model.build(input_shape=[(None, 224, 224, 3), (None, 224, 224, 3)])
 
             
