@@ -536,7 +536,12 @@ if __name__ == "__main__":
             print(f"Training {total_batches} batches per epoch, starting from epoch {start_epoch + 1}")
 
             # Open log file in append mode
-            with open(log_file, "a") as log:
+            # Ensure the log file exists
+            
+            if not tf.io.gfile.exists(log_file):
+                with tf.io.gfile.GFile(log_file, "w") as f:
+                    f.write("Training Log\n")
+            with tf.io.gfile.GFile(log_file, "a") as log:
                 for epoch in range(start_epoch, args.total_epochs):
                     print(f"\nEpoch {epoch + 1}/{args.total_epochs}")
 
