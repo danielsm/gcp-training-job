@@ -432,13 +432,11 @@ def dataset_generator(dataset):
 
 if __name__ == "__main__":
 
-
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Train a Vision Transformer contrastive model on GCP.")
 
     parser.add_argument("--input_dir", type=str, default="gs://dataset-dcts-fm/TFRecords", help="The TFRecords directory.") # Esse caminho vai funcionar?
     parser.add_argument("--output_dir", type=str, default="gs://dataset-dcts-fm/output", help="The directory to save the model and checkpoint.")
-    parser.add_argument("--resume_from", type=str, default=None, help="Path to a saved model to resume training.")
     parser.add_argument("--learning_rate", type=float, default=5e-4, help="Learning rate for training.")
     parser.add_argument("--batch_size", type=int, default=384, help="Batch size for training.")
     parser.add_argument("--total_epochs", type=int, default=50, help="Number of total epochs to run.")
@@ -455,7 +453,8 @@ if __name__ == "__main__":
     len_dataset = 1281167
     total_batches = (len_dataset // args.batch_size) - 1  # Total batches per epoch
 
-    print("Arguments:", args.input_dir, args.output_dir, args.resume_from, args.learning_rate, args.batch_size, args.total_epochs, args.patch_size, args.num_patches, args.num_blocks, args.num_heads, args.projection_dim, args.temperature, args.tpu)
+    print("Arguments:", args.input_dir, args.output_dir, args.learning_rate, args.batch_size, args.total_epochs, args.patch_size, args.num_patches, args.num_blocks, args.num_heads, args.projection_dim, args.temperature, args.tpu)
+    
     try:
         cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu)
         tf.config.experimental_connect_to_cluster(cluster_resolver)
@@ -466,15 +465,11 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"⚠️ Erro ao conectar à TPU: {e}")
         print("Executando em CPU/GPU em vez de TPU...")
-        # strategy = tf.distribute.get_strategy()
         raise e
 
 
     try:
-        # os.makedirs(args.output_dir, exist_ok=True)
-        # os.makedirs(os.path.join(args.output_dir, "checkpoints"), exist_ok=True)
-        # os.makedirs(os.path.join(args.output_dir, "logs"), exist_ok=True)
-        # os.makedirs(os.path.join(args.output_dir, "model_save"), exist_ok=True)
+
         if not tf.io.gfile.exists(args.output_dir):
             tf.io.gfile.makedirs(args.output_dir)
             
@@ -504,7 +499,7 @@ if __name__ == "__main__":
         with strategy.scope():
             contrastive_optimizer=Adam(learning_rate=args.learning_rate)
 
-    
+
             print("Creating a new model...")
             input_shape = (224, 224, 3)
             encoder = create_vit_model(input_shape, args.num_patches, args.patch_size, args.projection_dim, args.num_blocks, args.num_heads)
@@ -519,15 +514,15 @@ if __name__ == "__main__":
             if checkpoint_files:
                 # Extract batch numbers and find the latest
                 latest_checkpoint = max(checkpoint_files, key=lambda f: int(re.search(r"cp_batch-(\d+).ckpt", f).group(1)))
-                
+
                 # Extract the last batch number
                 start_batch = int(re.search(r"cp_batch-(\d+).ckpt", latest_checkpoint).group(1))
 
                 # Load the latest weights
                 contrastive_model.load_weights(latest_checkpoint)
-                
+
                 print(f"Loaded weights from: {latest_checkpoint}, resuming from batch {start_batch}")
-                
+
                 # Load best accuracy if available
                 best_acc_file = os.path.join(checkpoint_path, "best_accuracy.txt")
                 if os.path.exists(best_acc_file):
@@ -544,25 +539,25 @@ if __name__ == "__main__":
             with open(log_file, "a") as log:
                 for epoch in range(start_epoch, args.total_epochs):
                     print(f"\nEpoch {epoch + 1}/{args.total_epochs}")
-                    
+
                     # Initialize progress bar
                     with tqdm(total=total_batches, desc="Batch", unit="batch") as pbar:
                         for num_batch in range(total_batches):
                             batch = next(generator)
-                            
+
                             # Train on batch
                             logs = contrastive_model.train_step(batch)
-                            
+
                             # Convert tensors to float values
                             formatted_logs = {k: float(v.numpy()) for k, v in logs.items()}
-                            
+
                             # Format logs for better readability
                             formatted_logs_str = ", ".join([f"{k}: {v:.5f}" for k, v in formatted_logs.items()])
-                            
+
                             # Update progress bar description with metrics
                             pbar.set_postfix(formatted_logs)
                             pbar.update(1)  # Update progress bar
-                            
+
                             # Save logs
                             log_entry = f"Epoch {epoch + 1}, Batch {num_batch + 1}/{total_batches}: {formatted_logs_str}\n"
                             log.write(log_entry)
@@ -573,14 +568,14 @@ if __name__ == "__main__":
                             # Save the best model only after halfway
                             if current_accuracy > best_accuracy and current_accuracy > 0.5:
                                 best_accuracy = current_accuracy
-                                
+
                                 # Save best model checkpoint
                                 contrastive_model.save_weights(best_model_path)
                                 print(f"\nNew best accuracy {best_accuracy:.5f}, model saved at {best_model_path}")
-                                
+
                                 # Log best accuracy
                                 log.write(f"New best accuracy {best_accuracy:.5f}, model saved at {best_model_path}\n")
-                                
+
                                 # Save best accuracy to a file
                                 with open(os.path.join(checkpoint_path, "best_accuracy.txt"), "w") as f:
                                     f.write(f"{best_accuracy}")
